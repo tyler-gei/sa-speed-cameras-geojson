@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -31,6 +32,44 @@ except Exception:  # pragma: no cover - fallback if tzdata isn't available
     ADELAIDE_TZ = None
 
 _LOGGER = logging.getLogger(__name__)
+
+HTTP_TIMEOUT = aiohttp.ClientTimeout(total=30)
+NOMINATIM_TIMEOUT = aiohttp.ClientTimeout(total=15)
+
+
+async def _fetch_json(
+    session: aiohttp.ClientSession, url: str, *, params: dict | None = None
+) -> Any:
+    """GET a URL and parse JSON, raising a descriptive error if the body
+    isn't actually JSON (e.g. blocked by a WAF, empty response, HTML error
+    page) instead of a bare 'unexpected character' JSONDecodeError."""
+    async with session.get(
+        url,
+        params=params,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json, text/plain, */*",
+        },
+        timeout=HTTP_TIMEOUT,
+    ) as resp:
+        status = resp.status
+        text = await resp.text()
+
+    if status != 200:
+        raise UpdateFailed(
+            f"{url} returned HTTP {status}. Body preview: {text[:200]!r}"
+        )
+    if not text.strip():
+        raise UpdateFailed(f"{url} returned an empty response body (HTTP {status}).")
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as err:
+        raise UpdateFailed(
+            f"{url} did not return valid JSON (HTTP {status}). "
+            f"Body preview: {text[:200]!r}"
+        ) from err
+
 
 FALLBACK_STORE_VERSION = 1
 FALLBACK_STORE_KEY = f"{DOMAIN}_geocode_fallback_cache"
@@ -94,14 +133,8 @@ class SASpeedCameraCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         query = f"{street}, {suburb}, South Australia, Australia"
         params = {"q": query, "format": "json", "limit": 1, "countrycodes": "au"}
         try:
-            async with self._session.get(
-                NOMINATIM_URL,
-                params=params,
-                headers={"User-Agent": USER_AGENT},
-                timeout=15,
-            ) as resp:
-                results = await resp.json(content_type=None)
-        except Exception as err:  # noqa: BLE001 - log and continue, don't fail update
+            results = await _fetch_json(self._session, NOMINATIM_URL, params=params)
+        except UpdateFailed as err:
             _LOGGER.warning("Nominatim geocoding failed for %s: %s", query, err)
             return None
 
@@ -124,10 +157,9 @@ class SASpeedCameraCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             self._fallback_cache = await self._fallback_store.async_load() or {}
 
         try:
-            async with self._session.get(
-                SOURCE_URL, headers={"User-Agent": USER_AGENT}, timeout=30
-            ) as resp:
-                all_cameras = await resp.json(content_type=None)
+            all_cameras = await _fetch_json(self._session, SOURCE_URL)
+        except UpdateFailed:
+            raise
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Error fetching SAPOL camera feed: {err}") from err
 
