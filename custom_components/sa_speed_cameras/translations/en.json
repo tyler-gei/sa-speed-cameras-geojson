@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SA Speed Cameras",
+        "description": "Show currently-active South Australian mobile speed camera locations as map entities.",
+        "data": {
+          "lookup_file_path": "Local G-NAF lookup file (relative to /config, optional)",
+          "scan_interval_minutes": "Update interval (minutes)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "SA Speed Cameras is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "lookup_file_path": "Local G-NAF lookup file (relative to /config, optional)",
+          "scan_interval_minutes": "Update interval (minutes)"
+        }
+      }
+    }
+  }
+}
