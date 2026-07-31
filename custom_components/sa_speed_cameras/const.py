@@ -13,6 +13,9 @@ DEFAULT_LOOKUP_PATH = "sa_street_lookup.json"
 CONF_SCAN_INTERVAL = "scan_interval_minutes"
 DEFAULT_SCAN_INTERVAL_MINUTES = 60
 
+CONF_RADIUS = "radius_km"
+DEFAULT_RADIUS_KM = 25.0
+
 ATTRIBUTION = (
     "Camera locations: SA Police (police.sa.gov.au). "
     "Geocoding: G-NAF (Geoscape Australia, CC BY 4.0) "

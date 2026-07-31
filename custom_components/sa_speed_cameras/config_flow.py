@@ -10,8 +10,10 @@ from homeassistant.core import callback
 
 from .const import (
     CONF_LOOKUP_PATH,
+    CONF_RADIUS,
     CONF_SCAN_INTERVAL,
     DEFAULT_LOOKUP_PATH,
+    DEFAULT_RADIUS_KM,
     DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
 )
@@ -27,6 +29,10 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_SCAN_INTERVAL,
                 default=defaults.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES),
             ): vol.All(int, vol.Range(min=15, max=1440)),
+            vol.Optional(
+                CONF_RADIUS,
+                default=defaults.get(CONF_RADIUS, DEFAULT_RADIUS_KM),
+            ): vol.All(vol.Coerce(float), vol.Range(min=0)),
         }
     )
 

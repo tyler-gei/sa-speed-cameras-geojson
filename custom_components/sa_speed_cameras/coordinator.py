@@ -14,10 +14,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util.location import distance as calc_distance
 
 from .const import (
     CONF_LOOKUP_PATH,
+    CONF_RADIUS,
     DEFAULT_LOOKUP_PATH,
+    DEFAULT_RADIUS_KM,
     DOMAIN,
     NOMINATIM_URL,
     SOURCE_URL,
@@ -74,6 +77,43 @@ async def _fetch_json(
 FALLBACK_STORE_VERSION = 1
 FALLBACK_STORE_KEY = f"{DOMAIN}_geocode_fallback_cache"
 NOMINATIM_DELAY_SECONDS = 1.1
+
+FEED_FETCH_MAX_ATTEMPTS = 3
+FEED_FETCH_RETRY_DELAY_SECONDS = 5
+
+
+def _is_cloudflare_challenge(err: Exception) -> bool:
+    text = str(err)
+    return "Just a moment" in text or "cf-mitigated" in text.lower() or "cloudflare" in text.lower()
+
+
+async def _fetch_camera_feed_with_retry(session: aiohttp.ClientSession) -> Any:
+    """Fetch the SAPOL feed, retrying a couple of times if it looks like a
+    transient Cloudflare bot-challenge response rather than a hard failure."""
+    last_err: Exception | None = None
+    for attempt in range(1, FEED_FETCH_MAX_ATTEMPTS + 1):
+        try:
+            return await _fetch_json(session, SOURCE_URL)
+        except UpdateFailed as err:
+            last_err = err
+            if _is_cloudflare_challenge(err):
+                _LOGGER.warning(
+                    "SAPOL feed request hit a Cloudflare challenge page "
+                    "(attempt %d/%d), retrying...",
+                    attempt,
+                    FEED_FETCH_MAX_ATTEMPTS,
+                )
+            else:
+                _LOGGER.warning(
+                    "SAPOL feed fetch failed (attempt %d/%d): %s",
+                    attempt,
+                    FEED_FETCH_MAX_ATTEMPTS,
+                    err,
+                )
+            if attempt < FEED_FETCH_MAX_ATTEMPTS:
+                await asyncio.sleep(FEED_FETCH_RETRY_DELAY_SECONDS)
+    assert last_err is not None
+    raise last_err
 
 
 def _normalise(text: str) -> str:
@@ -157,7 +197,7 @@ class SASpeedCameraCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             self._fallback_cache = await self._fallback_store.async_load() or {}
 
         try:
-            all_cameras = await _fetch_json(self._session, SOURCE_URL)
+            all_cameras = await _fetch_camera_feed_with_retry(self._session)
         except UpdateFailed:
             raise
         except Exception as err:  # noqa: BLE001
@@ -217,5 +257,37 @@ class SASpeedCameraCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
 
         if cache_dirty:
             await self._fallback_store.async_save(self._fallback_cache)
+
+        options = {**self.entry.data, **self.entry.options}
+        radius_km = options.get(CONF_RADIUS, DEFAULT_RADIUS_KM)
+
+        if radius_km and radius_km > 0:
+            home_lat = self.hass.config.latitude
+            home_lon = self.hass.config.longitude
+            if home_lat is None or home_lon is None:
+                _LOGGER.warning(
+                    "Radius filtering is configured (%s km) but Home Assistant's "
+                    "home location isn't set -- showing all cameras unfiltered.",
+                    radius_km,
+                )
+            else:
+                within_radius = []
+                for item in results:
+                    dist_km = (
+                        calc_distance(
+                            home_lat, home_lon, item["latitude"], item["longitude"]
+                        )
+                        / 1000
+                    )
+                    if dist_km <= radius_km:
+                        item["distance_km"] = round(dist_km, 2)
+                        within_radius.append(item)
+                _LOGGER.debug(
+                    "%d of %d resolved cameras are within %s km of home",
+                    len(within_radius),
+                    len(results),
+                    radius_km,
+                )
+                results = within_radius
 
         return results

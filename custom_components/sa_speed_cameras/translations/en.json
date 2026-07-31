@@ -6,7 +6,8 @@
         "description": "Show currently-active South Australian mobile speed camera locations as map entities.",
         "data": {
           "lookup_file_path": "Local G-NAF lookup file (relative to /config, optional)",
-          "scan_interval_minutes": "Update interval (minutes)"
+          "scan_interval_minutes": "Update interval (minutes)",
+          "radius_km": "Only show cameras within this many km of home (0 = no limit)"
         }
       }
     },
@@ -19,7 +20,8 @@
       "init": {
         "data": {
           "lookup_file_path": "Local G-NAF lookup file (relative to /config, optional)",
-          "scan_interval_minutes": "Update interval (minutes)"
+          "scan_interval_minutes": "Update interval (minutes)",
+          "radius_km": "Only show cameras within this many km of home (0 = no limit)"
         }
       }
     }
